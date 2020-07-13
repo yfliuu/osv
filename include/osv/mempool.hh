@@ -301,6 +301,8 @@ public:
     static void unlock() { --emergency_alloc_level; }
 };
 
+void *alloc_page();
+
 /// Hold to mark self as a memory reclaimer
 extern reclaimer_lock_type reclaimer_lock;
 

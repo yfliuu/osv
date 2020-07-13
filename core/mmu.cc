@@ -28,9 +28,11 @@
 #include <osv/rcu.hh>
 #include <osv/rwlock.h>
 #include <numeric>
+#include <osv/device.h>
 
 extern void* elf_start;
 extern size_t elf_size;
+extern struct vnops devfs_vnops;
 
 namespace {
 
@@ -1103,6 +1105,41 @@ public:
     }
 };
 
+class devfs_map_file_page_mmap : public page_allocator {
+private:
+    addr_range _range;
+    file* _file;
+    off_t _foffset;
+    unsigned perm;
+    unsigned flags;
+    bool _shared;
+
+public:
+    devfs_map_file_page_mmap(file *file, addr_range range, off_t off, unsigned perm, unsigned flags, bool shared) : _range(range), _file(file), _foffset(off), _shared(shared) {
+        // The file here points to device file
+        struct device *dev = (struct device *)file->f_dentry->d_vnode->v_data;
+        int ret;
+        assert(dev && dev->driver && dev->driver->devops);
+        ret = dev->driver->devops->mmap(dev, _range.start(), _range.end(), off, perm, flags);
+        if (ret)
+            throw make_error(ret);
+    }
+    virtual ~devfs_map_file_page_mmap() {};
+
+    virtual bool map(uintptr_t offset, hw_ptep<0> ptep,  pt_element<0> pte, bool write) override {
+        return _file->map_page_range(_range.start(), _range.end(), offset + _foffset, ptep, pte, write, _shared);
+    }
+    virtual bool map(uintptr_t offset, hw_ptep<1> ptep, pt_element<1> pte, bool write) override {
+        return _file->map_page_range(_range.start(), _range.end(), offset + _foffset, ptep, pte, write, _shared);
+    }
+    virtual bool unmap(void *addr, uintptr_t offset, hw_ptep<0> ptep) override {
+        return _file->put_page(addr, offset + _foffset, ptep);
+    }
+    virtual bool unmap(void *addr, uintptr_t offset, hw_ptep<1> ptep) override {
+        return _file->put_page(addr, offset + _foffset, ptep);
+    }
+};
+
 uintptr_t allocate(vma *v, uintptr_t start, size_t size, bool search)
 {
     if (search) {
@@ -1231,6 +1268,11 @@ std::unique_ptr<file_vma> default_file_mmap(file* file, addr_range range, unsign
 std::unique_ptr<file_vma> map_file_mmap(file* file, addr_range range, unsigned flags, unsigned perm, off_t offset)
 {
     return std::unique_ptr<file_vma>(new file_vma(range, perm, flags, file, offset, new map_file_page_mmap(file, offset, flags & mmap_shared)));
+}
+
+std::unique_ptr<file_vma> devfs_map_file_mmap(file* file, addr_range range, unsigned flags, unsigned perm, off_t offset)
+{
+    return std::unique_ptr<file_vma>(new file_vma(range, perm, flags, file, offset, new devfs_map_file_page_mmap(file, range, offset, perm, flags, flags & mmap_shared)));
 }
 
 void* map_file(const void* addr, size_t size, unsigned flags, unsigned perm,
@@ -1694,7 +1736,7 @@ void file_vma::fault(uintptr_t addr, exception_frame *ef)
     auto hp_start = align_up(_range.start(), huge_page_size);
     auto hp_end = align_down(_range.end(), huge_page_size);
     auto fsize = ::size(_file);
-    if (offset(addr) >= fsize) {
+    if ((offset(addr) >= fsize) && _file->f_dentry->d_vnode->v_op != &devfs_vnops) {
         vm_sigbus(addr, ef);
         return;
     }

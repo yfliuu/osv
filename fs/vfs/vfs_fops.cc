@@ -14,6 +14,11 @@
 #include <osv/vfs_file.hh>
 #include <osv/mmu.hh>
 #include <osv/pagecache.hh>
+#include <osv/vnode.h>
+#include <osv/device.h>
+#include <osv/align.hh>
+
+extern struct vnops devfs_vnops;
 
 vfs_file::vfs_file(unsigned flags)
 	: file(flags, DTYPE_VNODE)
@@ -143,6 +148,21 @@ bool vfs_file::map_page(uintptr_t off, mmu::hw_ptep<0> ptep, mmu::pt_element<0> 
     return pagecache::get(this, off, ptep, pte, write, shared);
 }
 
+/* Temporary workaround */
+bool vfs_file::map_page_range(uintptr_t start, uintptr_t end, uintptr_t off, mmu::hw_ptep<0> ptep, mmu::pt_element<0> pte, bool write, bool shared)
+{
+	if (this->f_dentry->d_vnode->v_op == &devfs_vnops) {
+		struct device *dev = (struct device *)this->f_dentry->d_vnode->v_data;
+		assert(dev && dev->driver && dev->driver->vmaops && dev->driver->vmaops->on_fault);
+		void *addr;
+		int ret;
+		ret = dev->driver->vmaops->on_fault(dev, start, end, off, write, shared, &addr);
+		if (ret) { sys_panic("Error in map_page: fault handling\n"); }
+		return mmu::write_pte(addr, ptep, pte);
+	}
+    return pagecache::get(this, off, ptep, pte, write, shared);
+}
+
 bool vfs_file::put_page(void *addr, uintptr_t off, mmu::hw_ptep<0> ptep)
 {
     return pagecache::release(this, addr, off, ptep);
@@ -182,6 +202,9 @@ std::unique_ptr<mmu::file_vma> vfs_file::mmap(addr_range range, unsigned flags, 
 {
 	auto fp = this;
 	struct vnode *vp = fp->f_dentry->d_vnode;
+	if (vp->v_op == &devfs_vnops) {
+		return mmu::devfs_map_file_mmap(this, range, flags, perm, offset);
+	}
 	if (!vp->v_op->vop_cache || (vp->v_size < (off_t)mmu::page_size)) {
 		return mmu::default_file_mmap(this, range, flags, perm, offset);
 	}

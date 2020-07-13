@@ -47,6 +47,7 @@
 #include <osv/vnode.h>
 #include <osv/mount.h>
 #include <osv/dentry.h>
+#include <osv/debug.hh>
 
 #include "devfs.h"
 
@@ -141,7 +142,7 @@ devfs_lookup(struct vnode *dvp, char *name, struct vnode **vpp)
 	error = 0;
 	info.cookie = 0;
 	for (;;) {
-		error = device_info(&info);
+		error = device_info(&info, dvp);
 		if (error) {
 			return ENOENT;
 		}
@@ -156,11 +157,12 @@ devfs_lookup(struct vnode *dvp, char *name, struct vnode **vpp)
 	}
 	if (!vp)
 		return ENOMEM;
-	vp->v_type = (info.flags & D_CHR) ? VCHR : VBLK;
+	vp->v_type = (info.flags & D_CHR) ? VCHR : (info.flags & D_DIR ? VDIR : VBLK);
 	if (info.flags & D_TTY)
 		vp->v_flags |= VISTTY;
 
 	vp->v_mode = (mode_t)(S_IRUSR | S_IWUSR);
+	vp->v_data = info.id;
 
 	*vpp = vp;
 
@@ -182,7 +184,7 @@ devfs_readdir(struct vnode *vp, struct file *fp, struct dirent *dir)
 	error = 0;
 	info.cookie = 0;
 	do {
-		error = device_info(&info);
+		error = device_info(&info, vp);
 		if (error)
 			return ENOENT;
 	} while (i++ != fp->f_offset);
@@ -192,6 +194,8 @@ devfs_readdir(struct vnode *vp, struct file *fp, struct dirent *dir)
 		dir->d_type = DT_CHR;
 	else if (info.flags & D_BLK)
 		dir->d_type = DT_BLK;
+	else if (info.flags & D_DIR)
+		dir->d_type = DT_DIR;
 	strlcpy((char *)&dir->d_name, info.name, sizeof(dir->d_name));
 	dir->d_fileno = fp->f_offset;
 //	dir->d_namlen = strlen(dir->d_name);

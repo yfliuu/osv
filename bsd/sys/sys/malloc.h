@@ -36,6 +36,7 @@ enum bsd_malloc_arena {
     M_XENSTORE,
     M_XENBLOCKFRONT,
     M_XENBUS,
+    M_GNTDEV,
     M_TEMP,
 };
 

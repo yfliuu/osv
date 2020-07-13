@@ -53,6 +53,7 @@
 #include <osv/device.h>
 #include <osv/debug.h>
 #include <osv/buf.h>
+#include <osv/vnode.h>
 
 #include <geom/geom_disk.h>
 
@@ -63,6 +64,33 @@ mutex sched_mutex;
 
 /* list head of the devices */
 static struct device *device_list = NULL;
+static struct devdir rootdevdir;
+
+struct devops nulldevops {
+	no_open,
+	no_close,
+	no_read,
+	no_write,
+	no_ioctl,
+	no_devctl,
+	no_strategy,
+	no_mmap
+};
+
+static int break_path(char *path, char **namestore)
+{
+	int i = 0;
+	char *p, *q;
+    while (*path == '/') path++;
+    
+	for (p = q = path; *p; p++) {
+		if (*p == '/') {
+			*p = 0; namestore[i++] = q; q = p + 1;
+		}
+	}
+    if (q < p) namestore[i++] = q;
+	return i;
+}
 
 /*
  * Look up a device object by device name.
@@ -70,11 +98,25 @@ static struct device *device_list = NULL;
 static struct device *
 device_lookup(const char *name)
 {
-	struct device *dev;
+	struct devdir *root = &rootdevdir, *ddir;
+	char path[256], *namestore[8];
+	int i, c, found;
 
-	for (dev = device_list; dev != NULL; dev = dev->next) {
-		if (!strncmp(dev->name, name, MAXDEVNAME))
-			return dev;
+	strcpy(path, name);
+	c = break_path(path, namestore);
+	for (i = 0; i < c; i++) {
+		found = 0;
+		for (ddir = root->dd_child; ddir; ddir = ddir->dd_next) {
+			if (!ddir->dev) continue;	/* Happen during device_register_path */
+			if (!strcmp(ddir->dev->name, namestore[i])) {
+				if (i == c - 1) return ddir->dev;
+				if (!(ddir->dev->flags & D_DIR)) return NULL;
+				root = ddir;
+				found = 1;
+				break;
+			}
+		}
+		if (!found) return NULL;
 	}
 	return NULL;
 }
@@ -187,6 +229,57 @@ void device_register(struct device *dev, const char *name, int flags)
 	sched_unlock();
 }
 
+static struct devdir *
+devdir_lookup_child(struct devdir *root, const char *name)
+{
+	struct devdir *dd;
+
+	for (dd = root->dd_child; dd; dd = dd->dd_next) {
+		if (!strcmp(name, dd->dev->name))
+			return dd;
+	}
+	return NULL;
+}
+
+/**
+ * The last one of names is the actual device
+ */
+static struct device *
+device_register_path(struct driver *drv, char **names, int namec, int flags)
+{
+	struct device *dev = NULL;
+	struct devdir *root = &rootdevdir;
+	struct devdir *ddir = NULL;
+	int i;
+
+	assert(namec > 0);
+
+	// Panic on failures
+	for (i = 0; i < namec; i++) {
+		if (!(ddir = devdir_lookup_child(root, names[i]))) {
+			ddir = (struct devdir *)calloc(1, sizeof(struct devdir));
+			ddir->dd_parent = root;
+			ddir->dd_next = root->dd_child;
+			root->dd_child = ddir;
+		} else {
+			root = ddir;
+			continue;
+		}
+
+		if ((dev = new device) == NULL)
+			sys_panic("device_create");
+
+		dev->driver = drv;
+		device_register(dev, names[i], i == namec - 1 ? flags : D_DIR);
+		if (i != namec - 1) {
+			dev->devdir = ddir;
+		}
+		ddir->dev = dev;
+		root = ddir;
+	}
+
+	return dev;
+}
 
 /*
  * device_create - create new device object.
@@ -198,8 +291,12 @@ void device_register(struct device *dev, const char *name, int flags)
 struct device *
 device_create(struct driver *drv, const char *name, int flags)
 {
-	struct device *dev;
+	// struct device *dev;
 	size_t len;
+
+	char namebuf[256];
+	char *nameps[8];
+	int c;
 
 	assert(drv != NULL);
 
@@ -208,15 +305,9 @@ device_create(struct driver *drv, const char *name, int flags)
 	if (len == 0 || len >= MAXDEVNAME)
 		return NULL;
 
-	/*
-	 * Allocate a device structure.
-	 */
-	if ((dev = new device) == NULL)
-		sys_panic("device_create");
-
-    dev->driver = drv;
-    device_register(dev, name, flags);
-	return dev;
+	strcpy(namebuf, name);
+	c = break_path(namebuf, nameps);
+	return device_register_path(drv, nameps, c, flags);
 }
 
 #if 0
@@ -502,16 +593,22 @@ device_broadcast(u_long cmd, void *arg, int force)
  * Return device information.
  */
 int
-device_info(struct devinfo *info)
+device_info(struct devinfo *info, struct vnode *dvp)
 {
 	u_long target = info->cookie;
 	u_long i = 0;
-	struct device *dev;
+	struct device *r_dev, *dev;
 	int error = ESRCH;
+	struct devdir *root, *ddir;
+
+	r_dev = (struct device *)(dvp->v_data);
+	if (!r_dev) { root = &rootdevdir; }
+	else { root = (struct devdir *)r_dev->devdir; }
 
 	sched_lock();
-	for (dev = device_list; dev != NULL; dev = dev->next) {
+	for (ddir = root->dd_child; ddir; ddir = ddir->dd_next) {
 		if (i++ == target) {
+			dev = ddir->dev;
 			info->cookie = i;
 			info->id = dev;
 			info->flags = dev->flags;

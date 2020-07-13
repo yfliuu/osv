@@ -167,6 +167,8 @@ struct file {
 	virtual bool map_page(uintptr_t offset, mmu::hw_ptep<1> ptep, mmu::pt_element<1> pte, bool write, bool shared) { throw make_error(ENOSYS); }
 	virtual bool put_page(void *addr, uintptr_t offset, mmu::hw_ptep<0> ptep) { throw make_error(ENOSYS); }
 	virtual bool put_page(void *addr, uintptr_t offset, mmu::hw_ptep<1> ptep) { throw make_error(ENOSYS); }
+	virtual bool map_page_range(uintptr_t start, uintptr_t end, uintptr_t offset, mmu::hw_ptep<0> ptep, mmu::pt_element<0> pte, bool write, bool shared) { throw make_error(ENOSYS); }
+	virtual bool map_page_range(uintptr_t start, uintptr_t end, uintptr_t offset, mmu::hw_ptep<1> ptep, mmu::pt_element<1> pte, bool write, bool shared) { throw make_error(ENOSYS); }
 	virtual void sync(off_t start, off_t end) { throw make_error(ENOSYS); }
 
 	int		f_flags;	/* open flags */

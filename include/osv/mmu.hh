@@ -164,6 +164,7 @@ bool ismapped(const void *addr, size_t size);
 bool isreadable(void *addr, size_t size);
 std::unique_ptr<file_vma> default_file_mmap(file* file, addr_range range, unsigned flags, unsigned perm, off_t offset);
 std::unique_ptr<file_vma> map_file_mmap(file* file, addr_range range, unsigned flags, unsigned perm, off_t offset);
+std::unique_ptr<file_vma> devfs_map_file_mmap(file* file, addr_range range, unsigned flags, unsigned perm, off_t offset);
 
 
 template<int N>

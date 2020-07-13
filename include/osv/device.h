@@ -34,10 +34,11 @@
 #include <sys/types.h>
 
 #include <osv/uio.h>
+#include <osv/file.h>
 
 __BEGIN_DECLS
 
-#define MAXDEVNAME	12
+#define MAXDEVNAME	16
 #define DO_RWMASK	0x3
 
 struct bio;
@@ -61,6 +62,8 @@ struct devinfo {
 #define D_REM		0x00000004	/* removable device */
 #define D_TTY		0x00000010	/* tty device */
 
+#define D_DIR		0x00001000	/* pseudo dir device */
+
 typedef int (*devop_open_t)   (struct device *, int);
 typedef int (*devop_close_t)  (struct device *);
 typedef int (*devop_read_t)   (struct device *, struct uio *, int);
@@ -68,6 +71,7 @@ typedef int (*devop_write_t)  (struct device *, struct uio *, int);
 typedef int (*devop_ioctl_t)  (struct device *, u_long, void *);
 typedef int (*devop_devctl_t) (struct device *, u_long, void *);
 typedef void (*devop_strategy_t)(struct bio *);
+typedef int (*devop_mmap_t)  (struct device *, uintptr_t, uintptr_t, uintptr_t, unsigned, unsigned);
 
 /*
  * Device operations
@@ -80,6 +84,13 @@ struct devops {
 	devop_ioctl_t	ioctl;
 	devop_devctl_t	devctl;
 	devop_strategy_t strategy;
+	devop_mmap_t	mmap;
+};
+
+typedef int (*vmaop_onfault_t) (struct device *, uintptr_t, uintptr_t, uintptr_t, unsigned, unsigned, void **);
+
+struct vmaops {
+	vmaop_onfault_t on_fault;
 };
 
 
@@ -90,6 +101,7 @@ struct devops {
 #define	no_ioctl	((devop_ioctl_t)enodev)
 #define	no_devctl	((devop_devctl_t)nullop)
 #define	no_strategy	((devop_strategy_t)nullop)
+#define	no_mmap		((devop_mmap_t)nullop)
 
 /*
  * Driver object
@@ -99,6 +111,8 @@ struct driver {
 	struct devops	*devops;	/* device operations */
 	size_t		devsz;		/* size of private data */
 	int		flags;		/* state of driver */
+
+	struct vmaops	*vmaops;	/* ADDED: vma ops, probably */
 };
 
 /*
@@ -121,6 +135,7 @@ typedef enum device_state {
 struct device {
 	struct device	*next;		/* linkage on list of all devices */
 	struct driver	*driver;	/* pointer to the driver object */
+	struct devdir	*devdir;	/* device directory (NULL most of the times) */
 	char		name[MAXDEVNAME]; /* name of device */
 	int		flags;		/* D_* flags defined above */
 	int		active;		/* device has not been destroyed */
@@ -137,6 +152,14 @@ struct device {
 	int unit;
 	int irq;
 	int vector;
+};
+
+/* Very naive implementation of directory in devfs */
+struct devdir {
+	struct devdir *dd_child;	/* first child node */
+	struct devdir *dd_parent;	/* parent node */
+	struct devdir *dd_next;		/* next node in the same directory */
+	struct device *dev;
 };
 
 typedef struct device *device_t;
@@ -193,7 +216,7 @@ int	 device_close(struct device *);
 int	 device_read(struct device *, struct uio *, int);
 int	 device_write(struct device *, struct uio *, int);
 int	 device_ioctl(struct device *, u_long, void *);
-int	 device_info(struct devinfo *);
+int	 device_info(struct devinfo *, struct vnode *);
 
 int	 bdev_read(struct device *dev, struct uio *uio, int ioflags);
 int	 bdev_write(struct device *dev, struct uio *uio, int ioflags);

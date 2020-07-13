@@ -54,6 +54,8 @@
 #include "drivers/random.hh"
 #include "drivers/console.hh"
 #include "drivers/null.hh"
+#include "drivers/xengntdev.hh"
+#include "drivers/xengntalloc.hh"
 
 #include "libc/network/__dns.hh"
 #include <processor.hh>
@@ -389,6 +391,8 @@ void* do_main_thread(void *_main_args)
     arch_init_drivers();
     console::console_init();
     nulldev::nulldev_init();
+    gntdev::gntdev_init();
+    gntalloc::gntalloc_init();
     if (opt_random) {
         randomdev::randomdev_init();
     }

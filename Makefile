@@ -599,6 +599,8 @@ bsd += bsd/sys/xen/xenbus/xenbusb.o
 bsd += bsd/sys/xen/xenbus/xenbusb_front.o
 bsd += bsd/sys/dev/xen/netfront/netfront.o
 bsd += bsd/sys/dev/xen/blkfront/blkfront.o
+bsd += bsd/sys/dev/xen/gntdev/gntdev.o
+bsd += bsd/sys/dev/xen/gntalloc/gntalloc.o
 bsd += bsd/sys/dev/hyperv/vmbus/hyperv.o
 endif
 
@@ -813,6 +815,8 @@ drivers += drivers/ide.o
 drivers += drivers/scsi-common.o
 drivers += drivers/vmw-pvscsi.o
 drivers += drivers/xenplatform-pci.o
+drivers += drivers/xengntdev.o
+drivers += drivers/xengntalloc.o
 endif # x64
 
 ifeq ($(arch),aarch64)

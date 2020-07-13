@@ -280,6 +280,7 @@ def start_osv_qemu(options):
         if options.dry_run:
             print(format_args(cmdline))
         else:
+            print(' '.join(cmdline))
             ret = subprocess.call(cmdline, env=qemu_env)
             if ret != 0:
                 sys.exit("qemu failed.")
@@ -352,6 +353,9 @@ def start_osv_xen(options):
            net_device_options += ",script=%s" % options.script
        args += ["vif=['%s']" % (net_device_options)]
 
+    for item in args:
+        print(item)
+    if options.detach: print("detached")
     # Using xm would allow us to get away with creating the file, but it comes
     # with its set of problems as well. Stick to xl.
     xenfile = tempfile.NamedTemporaryFile(mode="w")
@@ -476,7 +480,7 @@ def choose_hypervisor(external_networking, arch):
     if os.path.exists('/dev/kvm') and arch == 'x86_64':
         return 'kvm'
     if (os.path.exists('/proc/xen/capabilities')
-        and 'control_d' in file('/proc/xen/capabilities').read()
+        and 'control_d' in open('/proc/xen/capabilities').read()
         and external_networking):
         return 'xen'
     return 'qemu'

@@ -170,4 +170,25 @@ gnttab_set_replace_op(struct gnttab_unmap_and_replace *unmap, vm_paddr_t addr,
 }
 #endif
 
+static inline void
+gnttab_set_map_op(struct gnttab_map_grant_ref *map, uint64_t addr,
+		  uint32_t flags, grant_ref_t ref, domid_t domid)
+{
+	map->host_addr = addr;
+
+	map->flags = flags;
+	map->ref = ref;
+	map->dom = domid;
+}
+
+static inline void
+gnttab_set_unmap_op(struct gnttab_unmap_grant_ref *unmap, uint64_t addr,
+		    uint32_t flags, grant_handle_t handle)
+{
+	unmap->host_addr = addr;
+
+	unmap->handle = handle;
+	unmap->dev_bus_addr = 0;
+}
+
 #endif /* __ASM_GNTTAB_H__ */
